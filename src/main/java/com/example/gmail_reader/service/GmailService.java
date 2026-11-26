@@ -1,90 +1,118 @@
 package com.example.gmail_reader.service;
 
-
 import com.example.gmail_reader.config.GmailConfig;
+
+
 import com.example.gmail_reader.model.EmailDto;
+import com.google.api.client.googleapis.batch.BatchRequest;
+import com.google.api.client.googleapis.batch.json.JsonBatchCallback;
+import com.google.api.client.googleapis.json.GoogleJsonError;
+import com.google.api.client.http.HttpHeaders;
 import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.ListMessagesResponse;
 import com.google.api.services.gmail.model.Message;
+import com.google.api.services.gmail.model.MessagePartHeader;
+
 
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 @Service
 public class GmailService {
 
-    private Gmail gmail;
+    private final GmailConfig gmailConfig;
 
-    private final GmailConfig gmailConfig = new GmailConfig();
-
-    private Gmail getGmailClient() throws Exception {
-
-        if (gmail == null) {
-            gmail = gmailConfig.createGmailService();
-        }
-
-        return gmail;
+    public GmailService(GmailConfig gmailConfig) {
+        this.gmailConfig = gmailConfig;
     }
 
     public List<EmailDto> getLast200Emails() throws Exception {
 
-        Gmail gmailClient = getGmailClient();
+        Gmail gmail = gmailConfig.createGmailService();
 
-        List<EmailDto> emailList = new ArrayList<>();
-
-        ListMessagesResponse response =
-                gmailClient.users()
-                        .messages()
-                        .list("me")
-                        .setMaxResults(200L)
-                        .execute();
+        // Get the latest 200 email IDs
+        ListMessagesResponse response = gmail.users()
+                .messages()
+                .list("me")
+                .setMaxResults(200L)
+                .execute();
 
         List<Message> messages = response.getMessages();
 
         if (messages == null || messages.isEmpty()) {
-            return emailList;
+            return Collections.emptyList();
         }
 
-        for (Message message : messages) {
+        List<EmailDto> emails =
+                Collections.synchronizedList(new ArrayList<>());
 
-            Message fullMessage =
-                    gmailClient.users()
-                            .messages()
-                            .get("me", message.getId())
-                            .setFormat("METADATA")
-                            .setMetadataHeaders(
-                                    List.of("From", "Subject")
-                            )
-                            .execute();
+        int batchSize = 100;
 
-            String sender = "";
-            String subject = "";
+        for (int start = 0; start < messages.size(); start += batchSize) {
 
-            if (fullMessage.getPayload() != null
-                    && fullMessage.getPayload().getHeaders() != null) {
+            int end = Math.min(start + batchSize, messages.size());
 
-                for (var header :
-                        fullMessage.getPayload().getHeaders()) {
+            BatchRequest batch = gmail.batch();
 
-                    if (header.getName().equalsIgnoreCase("From")) {
-                        sender = header.getValue();
-                    }
+            JsonBatchCallback<Message> callback =
+                    new JsonBatchCallback<>() {
 
-                    if (header.getName().equalsIgnoreCase("Subject")) {
-                        subject = header.getValue();
-                    }
-                }
+                        @Override
+                        public void onSuccess(
+                                Message message,
+                                HttpHeaders responseHeaders) {
+
+                            String sender = "";
+                            String subject = "";
+
+                            if (message.getPayload() != null
+                                    && message.getPayload().getHeaders() != null) {
+
+                                for (MessagePartHeader header :
+                                        message.getPayload().getHeaders()) {
+
+                                    if ("From".equalsIgnoreCase(header.getName())) {
+                                        sender = header.getValue();
+                                    }
+
+                                    if ("Subject".equalsIgnoreCase(header.getName())) {
+                                        subject = header.getValue();
+                                    }
+                                }
+                            }
+
+                            emails.add(new EmailDto(sender, subject));
+                        }
+
+                        @Override
+                        public void onFailure(
+                                GoogleJsonError error,
+                                HttpHeaders responseHeaders) {
+
+                            System.err.println(
+                                    "Email request failed: " + error.getMessage());
+                        }
+                    };
+
+            for (int i = start; i < end; i++) {
+
+                String messageId = messages.get(i).getId();
+
+                gmail.users()
+                        .messages()
+                        .get("me", messageId)
+                        .setFormat("METADATA")
+                        .setMetadataHeaders(List.of("From", "Subject"))
+                        .queue(batch, callback);
             }
 
-            EmailDto emailDto =
-                    new EmailDto(sender, subject);
-
-            emailList.add(emailDto);
+            batch.execute();
         }
 
-        return emailList;
+        return emails;
     }
 }

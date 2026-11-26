@@ -12,6 +12,7 @@ import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.client.util.store.FileDataStoreFactory;
 import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.GmailScopes;
+import org.springframework.context.annotation.Configuration;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -19,7 +20,7 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
-
+@Configuration
 public class GmailConfig {
 
     private static final String APPLICATION_NAME = "Gmail Email Reader";
