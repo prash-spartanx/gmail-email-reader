@@ -40,7 +40,7 @@ Before running the application, ensure the following are installed:
 Open a terminal and run:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/gmail-email-reader.git
+git clone https://github.com/prash-spartanx/gmail-email-reader.git
 ```
 
 Navigate to the project directory:
